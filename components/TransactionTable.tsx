@@ -14,13 +14,14 @@ interface TransactionTableProps {
   onDelete: (type: 'trans' | 'proc' | 'exp', id: number) => void;
   t: Translation;
   themeColor: string;
+  viewMode: 'daily' | 'monthly';
 }
 
-type SortKey = 'time' | 'type' | 'details' | 'value';
+type SortKey = 'date' | 'time' | 'type' | 'details' | 'value';
 type SortDirection = 'asc' | 'desc';
 
 export const TransactionTable: React.FC<TransactionTableProps> = ({ 
-  date, transactions, processing, expenses, allMaterials, onDelete, t, themeColor 
+  date, transactions, processing, expenses, allMaterials, onDelete, t, themeColor, viewMode 
 }) => {
   // State for Filtering
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -28,7 +29,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
 
   // State for Sorting
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({
-    key: 'time',
+    key: viewMode === 'monthly' ? 'date' : 'time',
     direction: 'desc'
   });
 
@@ -73,9 +74,11 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       let valB: any = '';
 
       switch (sortConfig.key) {
+        case 'date':
         case 'time':
-          valA = a.time;
-          valB = b.time;
+          // Sort by full timestamp
+          valA = `${a.date}T${a.time}`;
+          valB = `${b.date}T${b.time}`;
           break;
         case 'type':
           // Custom sort order for types
@@ -128,11 +131,22 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
       : <ChevronDown size={14} className={`text-${themeColor}-600`} />;
   };
 
+  const formatDateTitle = () => {
+     if (viewMode === 'monthly') {
+         try {
+            return format(parseISO(date + '-01'), 'MMMM yyyy');
+         } catch (e) {
+             return date;
+         }
+     }
+     return format(parseISO(date), 'dd.MM.yyyy');
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col max-h-[600px]">
       <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="font-semibold text-slate-700 flex items-center gap-2">
-           {t.tableTitle} <span className="text-slate-400 font-normal text-sm">({format(parseISO(date), 'dd.MM.yyyy')})</span>
+           {t.tableTitle} <span className="text-slate-400 font-normal text-sm">({formatDateTitle()})</span>
         </div>
         
         {/* Filters */}
@@ -177,6 +191,14 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-slate-500 uppercase bg-slate-50 sticky top-0 z-10">
               <tr>
+                {viewMode === 'monthly' && (
+                    <th 
+                    className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
+                    onClick={() => handleSort('date')}
+                    >
+                    <div className="flex items-center gap-1">{t.colDate} <SortIcon column="date" /></div>
+                    </th>
+                )}
                 <th 
                   className="px-4 py-3 cursor-pointer hover:bg-slate-100 transition-colors group select-none"
                   onClick={() => handleSort('time')}
@@ -260,6 +282,9 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
 
                 return (
                   <tr key={`${item.kind}-${item.id}`} className="hover:bg-slate-50 transition-colors">
+                    {viewMode === 'monthly' && (
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono text-xs">{format(parseISO(item.date), 'dd.MM')}</td>
+                    )}
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono text-xs">{item.time}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${badgeClass}`}>

@@ -1,6 +1,5 @@
 
 
-
 export const translations = {
   ru: {
     loginTitle: "Вход в систему",
@@ -18,7 +17,7 @@ export const translations = {
     lblThemeColor: "Цвет темы",
     lblFont: "Шрифт",
     
-    kpiIncome: "Доход (Сегодня)",
+    kpiIncome: "Доход",
     kpiExpense: "Расходы",
     kpiProfit: "Чистая прибыль",
     
@@ -77,6 +76,7 @@ export const translations = {
     tableTitle: "Журнал операций",
     tableNoData: "Нет записей по выбранным фильтрам",
     colTime: "Время",
+    colDate: "Дата",
     colType: "Тип",
     colDetails: "Детали",
     colSum: "Сумма",
@@ -97,7 +97,14 @@ export const translations = {
     confirmPay: "Подтвердить оплату долга?",
     confirmDelMat: "Удалить элемент из списка?",
     
-    procInfo: "Переработка сырья в готовую продукцию. Сырье списывается, продукция начисляется."
+    procInfo: "Переработка сырья в готовую продукцию. Сырье списывается, продукция начисляется.",
+    
+    viewDay: "День",
+    viewMonth: "Месяц",
+    monthlyStats: "Статистика за месяц",
+    topSales: "Продажи по товарам",
+    topExpenses: "Расходы по категориям",
+    msgSwitchToDay: "Переключитесь на режим 'День' для добавления операций"
   },
   tj: {
     loginTitle: "Воридшавӣ ба система",
@@ -115,7 +122,7 @@ export const translations = {
     lblThemeColor: "Ранги мавзӯъ",
     lblFont: "Шрифт",
     
-    kpiIncome: "Даромад (Имрӯз)",
+    kpiIncome: "Даромад",
     kpiExpense: "Хароҷот",
     kpiProfit: "Фоидаи соф",
     
@@ -174,6 +181,7 @@ export const translations = {
     tableTitle: "Журнали амалиётҳо",
     tableNoData: "Сабтҳо ёфт нашуданд",
     colTime: "Вақт",
+    colDate: "Сана",
     colType: "Намуд",
     colDetails: "Тафсилот",
     colSum: "Маблағ",
@@ -194,7 +202,14 @@ export const translations = {
     confirmPay: "Пардохти қарзро тасдиқ мекунед?",
     confirmDelMat: "Унсурро аз рӯйхат нест мекунед?",
     
-    procInfo: "Коркарди ашёи хом ба маҳсулоти тайёр. Ашёи хом хориҷ ва маҳсулот илова карда мешавад."
+    procInfo: "Коркарди ашёи хом ба маҳсулоти тайёр. Ашёи хом хориҷ ва маҳсулот илова карда мешавад.",
+
+    viewDay: "Рӯз",
+    viewMonth: "Моҳ",
+    monthlyStats: "Омори моҳона",
+    topSales: "Фурӯш аз рӯи молҳо",
+    topExpenses: "Хароҷот аз рӯи категорияҳо",
+    msgSwitchToDay: "Барои илова кардани амалиёт ба реҷаи 'Рӯз' гузаред"
   }
 };
 

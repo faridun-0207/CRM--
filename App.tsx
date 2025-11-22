@@ -9,8 +9,9 @@ import { TransactionTable } from './components/TransactionTable';
 import { DebtList } from './components/DebtList';
 import { StockBadges } from './components/StockBadges';
 import { SettingsModal } from './components/SettingsModal';
+import { AnalysisPanel } from './components/AnalysisPanel';
 import { Transaction, Processing, Expense, Database, StockMap } from './types';
-import { Download, LogOut, Calendar, Languages, Settings, Dices } from 'lucide-react';
+import { Download, LogOut, Calendar, Languages, Settings, Dices, LayoutList } from 'lucide-react';
 import { DEFAULT_RAW_MATERIALS, DEFAULT_FINISHED_GOODS, EXPENSE_CATEGORIES, WORKERS, THEME_COLORS, THEME_FONTS } from './constants';
 import { format } from 'date-fns';
 import { translations, Lang } from './translations';
@@ -24,6 +25,7 @@ const FONT_KEY = 'ecorecycle_font';
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
   const [lang, setLang] = useState<Lang>('ru');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [themeColor, setThemeColor] = useState('teal');
@@ -105,6 +107,20 @@ const App: React.FC = () => {
 
   // --- Logic Helpers ---
 
+  const toggleViewMode = (mode: 'daily' | 'monthly') => {
+    setViewMode(mode);
+    // Adjust date format when switching
+    if (mode === 'monthly') {
+        // Switch to YYYY-MM
+        setDate(date.substring(0, 7));
+    } else {
+        // Switch to YYYY-MM-DD, default to 1st of month if currently in month view
+        if (date.length === 7) {
+             setDate(date + '-01');
+        }
+    }
+  };
+
   const addTransaction = (type: 'buy' | 'sell', data: any) => {
     const qty = parseFloat(data.qty);
     const price = parseFloat(data.price);
@@ -116,7 +132,7 @@ const App: React.FC = () => {
 
     const newTrans: Transaction = {
       id: Date.now(),
-      date,
+      date: date.length === 7 ? format(new Date(), 'yyyy-MM-dd') : date, // Ensure transaction has full date
       time: format(new Date(), 'HH:mm'),
       type,
       mat: data.mat,
@@ -134,7 +150,7 @@ const App: React.FC = () => {
   const addProcessing = (data: any) => {
     const newProc: Processing = {
       id: Date.now(),
-      date,
+      date: date.length === 7 ? format(new Date(), 'yyyy-MM-dd') : date,
       time: format(new Date(), 'HH:mm'),
       from: data.from,
       qtyIn: parseFloat(data.qtyIn),
@@ -147,7 +163,7 @@ const App: React.FC = () => {
   const addExpense = (type: 'general' | 'salary', data: any) => {
     const newExp: Expense = {
       id: Date.now(),
-      date,
+      date: date.length === 7 ? format(new Date(), 'yyyy-MM-dd') : date,
       time: format(new Date(), 'HH:mm'),
       cat: type === 'salary' ? 'Salary' : data.cat,
       amt: parseFloat(data.amt),
@@ -171,7 +187,7 @@ const App: React.FC = () => {
     setDb(prev => ({
       ...prev,
       transactions: prev.transactions.map(t => 
-        t.id === id ? { ...t, is_paid: true, date_repaid: date } : t
+        t.id === id ? { ...t, is_paid: true, date_repaid: date.length === 7 ? format(new Date(), 'yyyy-MM-dd') : date } : t
       )
     }));
   };
@@ -246,28 +262,42 @@ const App: React.FC = () => {
     return s;
   }, [db, allMaterials]);
 
-  const stats = useMemo(() => {
-    const dayTrans = db.transactions.filter(t => t.date === date);
-    const dayExp = db.expenses.filter(e => e.date === date);
-    
-    // Income: Direct Sales (Cash/Card) + Debts Repaid Today
-    let income = dayTrans.filter(t => t.type === 'sell' && t.method !== 'debt').reduce((acc, t) => acc + t.total, 0);
-    // Add repayments made today (even if original transaction was earlier)
-    const repaymentsToday = db.transactions.filter(t => t.is_paid && t.date_repaid === date).reduce((acc, t) => acc + t.total, 0);
-    income += repaymentsToday;
+  // Filter Lists based on View Mode
+  const { filteredTransactions, filteredProcessing, filteredExpenses } = useMemo(() => {
+      const checkDate = (itemDate: string) => {
+          if (viewMode === 'daily') return itemDate === date;
+          return itemDate.startsWith(date); // Check YYYY-MM
+      };
 
-    // Expense: Buys + Expenses
-    const buys = dayTrans.filter(t => t.type === 'buy').reduce((acc, t) => acc + t.total, 0);
-    const ops = dayExp.reduce((acc, e) => acc + e.amt, 0);
+      return {
+          filteredTransactions: db.transactions.filter(t => checkDate(t.date)),
+          filteredProcessing: db.processing.filter(p => checkDate(p.date)),
+          filteredExpenses: db.expenses.filter(e => checkDate(e.date))
+      };
+  }, [db, date, viewMode]);
+
+  const stats = useMemo(() => {
+    // Income: Direct Sales (Cash/Card) + Debts Repaid in this period
+    let income = filteredTransactions.filter(t => t.type === 'sell' && t.method !== 'debt').reduce((acc, t) => acc + t.total, 0);
+    
+    // Repayments in this period: Find transactions that were repaid ON a date falling in this period
+    // Logic: iterate all transactions, check if repaid_date matches current filter
+    const repayments = db.transactions.filter(t => {
+        if (!t.is_paid || !t.date_repaid) return false;
+        if (viewMode === 'daily') return t.date_repaid === date;
+        return t.date_repaid.startsWith(date);
+    }).reduce((acc, t) => acc + t.total, 0);
+    
+    income += repayments;
+
+    // Expense: Buys in this period + Expenses in this period
+    const buys = filteredTransactions.filter(t => t.type === 'buy').reduce((acc, t) => acc + t.total, 0);
+    const ops = filteredExpenses.reduce((acc, e) => acc + e.amt, 0);
     const expense = buys + ops;
 
     return { income, expense, profit: income - expense };
-  }, [db, date]);
+  }, [filteredTransactions, filteredExpenses, db.transactions, date, viewMode]);
 
-  // Filter lists for current date view
-  const dayTransactions = db.transactions.filter(t => t.date === date);
-  const dayProcessing = db.processing.filter(p => p.date === date);
-  const dayExpenses = db.expenses.filter(e => e.date === date);
 
   if (!isAuthenticated) return <Login onLogin={handleLogin} t={t} lang={lang} setLang={setLang} themeColor={themeColor} />;
 
@@ -282,17 +312,34 @@ const App: React.FC = () => {
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">EcoRecycle <span className={`text-${themeColor}-600`}>Pro</span></h1>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 overflow-x-auto pb-1 md:pb-0 no-scrollbar">
+            <div className="flex items-center bg-slate-100 rounded-lg p-1 shrink-0">
+                <button 
+                    onClick={() => toggleViewMode('daily')}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'daily' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    {t.viewDay}
+                </button>
+                <button 
+                     onClick={() => toggleViewMode('monthly')}
+                     className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                    {t.viewMonth}
+                </button>
+            </div>
+
             <input 
-                type="date" 
+                type={viewMode === 'daily' ? 'date' : 'month'}
                 value={date} 
                 onChange={e => setDate(e.target.value)}
-                className={`bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-${themeColor}-500 focus:border-${themeColor}-500 block p-2.5 outline-none font-medium`}
+                className={`bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-${themeColor}-500 focus:border-${themeColor}-500 block p-2 outline-none font-medium w-36 shrink-0`}
             />
             
+            <div className="w-px h-8 bg-slate-200 mx-1 shrink-0"></div>
+
             <button 
                 onClick={handleRandomTheme}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors shrink-0"
                 title="Random Theme"
             >
                 <Dices size={20} />
@@ -300,7 +347,7 @@ const App: React.FC = () => {
 
             <button 
                 onClick={() => setIsSettingsOpen(true)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors shrink-0"
                 title={t.navSettings}
             >
                 <Settings size={20} />
@@ -308,16 +355,16 @@ const App: React.FC = () => {
 
             <button 
               onClick={() => setLang(lang === 'ru' ? 'tj' : 'ru')}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group shrink-0"
               title="Switch Language"
             >
               <Languages size={20} />
-              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-slate-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity uppercase pointer-events-none z-50">{lang}</span>
+              <span className="absolute -bottom-8 right-0 text-xs bg-slate-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity uppercase pointer-events-none z-50">{lang}</span>
             </button>
 
             <button 
                 onClick={handleLogout}
-                className="text-slate-400 hover:text-rose-600 hover:bg-slate-100 p-2 rounded-lg transition-colors"
+                className="text-slate-400 hover:text-rose-600 hover:bg-slate-100 p-2 rounded-lg transition-colors shrink-0"
                 title={t.navLogout}
             >
                 <LogOut size={20} />
@@ -329,21 +376,30 @@ const App: React.FC = () => {
         <KPIStats {...stats} t={t} />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left Column: Management */}
+            {/* Left Column: Management or Analysis */}
             <div className="lg:col-span-5 space-y-6">
-                <OperationsPanel 
-                    stock={stock}
-                    rawMaterials={db.rawMaterials}
-                    finishedGoods={db.finishedGoods}
-                    expenseCategories={db.expenseCategories}
-                    workers={db.workers}
-                    allMaterials={allMaterials}
-                    onAddTransaction={addTransaction}
-                    onAddProcessing={addProcessing}
-                    onAddExpense={addExpense}
-                    t={t}
-                    themeColor={themeColor}
-                />
+                {viewMode === 'daily' ? (
+                    <OperationsPanel 
+                        stock={stock}
+                        rawMaterials={db.rawMaterials}
+                        finishedGoods={db.finishedGoods}
+                        expenseCategories={db.expenseCategories}
+                        workers={db.workers}
+                        allMaterials={allMaterials}
+                        onAddTransaction={addTransaction}
+                        onAddProcessing={addProcessing}
+                        onAddExpense={addExpense}
+                        t={t}
+                        themeColor={themeColor}
+                    />
+                ) : (
+                    <AnalysisPanel 
+                        transactions={filteredTransactions}
+                        expenses={filteredExpenses}
+                        t={t}
+                        themeColor={themeColor}
+                    />
+                )}
                 <StockChart stock={stock} t={t} />
             </div>
 
@@ -353,13 +409,14 @@ const App: React.FC = () => {
                 <DebtList transactions={db.transactions} onPayDebt={payDebt} t={t} themeColor={themeColor} />
                 <TransactionTable 
                     date={date}
-                    transactions={dayTransactions}
-                    processing={dayProcessing}
-                    expenses={dayExpenses}
+                    transactions={filteredTransactions}
+                    processing={filteredProcessing}
+                    expenses={filteredExpenses}
                     allMaterials={allMaterials}
                     onDelete={deleteItem}
                     t={t}
                     themeColor={themeColor}
+                    viewMode={viewMode}
                 />
             </div>
         </div>
