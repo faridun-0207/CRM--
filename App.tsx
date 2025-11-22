@@ -1,0 +1,399 @@
+
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { Login } from './components/Login';
+import { KPIStats } from './components/KPIStats';
+import { OperationsPanel } from './components/OperationsPanel';
+import { StockChart } from './components/StockChart';
+import { TransactionTable } from './components/TransactionTable';
+import { DebtList } from './components/DebtList';
+import { StockBadges } from './components/StockBadges';
+import { SettingsModal } from './components/SettingsModal';
+import { Transaction, Processing, Expense, Database, StockMap } from './types';
+import { Download, LogOut, Calendar, Languages, Settings, Dices } from 'lucide-react';
+import { DEFAULT_RAW_MATERIALS, DEFAULT_FINISHED_GOODS, EXPENSE_CATEGORIES, WORKERS, THEME_COLORS, THEME_FONTS } from './constants';
+import { format } from 'date-fns';
+import { translations, Lang } from './translations';
+
+const STORAGE_KEY = 'ecorecycle_db_v1';
+const AUTH_KEY = 'ecorecycle_auth';
+const LANG_KEY = 'ecorecycle_lang';
+const THEME_KEY = 'ecorecycle_theme';
+const FONT_KEY = 'ecorecycle_font';
+
+const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [lang, setLang] = useState<Lang>('ru');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [themeColor, setThemeColor] = useState('teal');
+  const [font, setFont] = useState('Inter');
+  
+  // Database State
+  const [db, setDb] = useState<Database>({
+    transactions: [],
+    processing: [],
+    expenses: [],
+    rawMaterials: DEFAULT_RAW_MATERIALS,
+    finishedGoods: DEFAULT_FINISHED_GOODS,
+    expenseCategories: EXPENSE_CATEGORIES,
+    workers: WORKERS
+  });
+
+  // Load Data
+  useEffect(() => {
+    const savedAuth = localStorage.getItem(AUTH_KEY);
+    if (savedAuth === 'true') setIsAuthenticated(true);
+
+    const savedDb = localStorage.getItem(STORAGE_KEY);
+    if (savedDb) {
+      const parsed = JSON.parse(savedDb);
+      // Migration: ensure lists exist
+      if (!parsed.rawMaterials) parsed.rawMaterials = DEFAULT_RAW_MATERIALS;
+      if (!parsed.finishedGoods) parsed.finishedGoods = DEFAULT_FINISHED_GOODS;
+      if (!parsed.expenseCategories) parsed.expenseCategories = EXPENSE_CATEGORIES;
+      if (!parsed.workers) parsed.workers = WORKERS;
+      setDb(parsed);
+    }
+    
+    const savedLang = localStorage.getItem(LANG_KEY) as Lang;
+    if (savedLang && (savedLang === 'ru' || savedLang === 'tj')) {
+      setLang(savedLang);
+    }
+
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    if (savedTheme) setThemeColor(savedTheme);
+
+    const savedFont = localStorage.getItem(FONT_KEY);
+    if (savedFont) setFont(savedFont);
+  }, []);
+
+  // Save Data
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }, [db]);
+  
+  // Save Lang
+  useEffect(() => {
+    localStorage.setItem(LANG_KEY, lang);
+  }, [lang]);
+
+  // Save Theme
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, themeColor);
+    localStorage.setItem(FONT_KEY, font);
+  }, [themeColor, font]);
+
+  const t = translations[lang];
+
+  const handleLogin = () => {
+    setIsAuthenticated(true);
+    localStorage.setItem(AUTH_KEY, 'true');
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem(AUTH_KEY);
+  };
+
+  const handleRandomTheme = () => {
+    const randomColor = THEME_COLORS[Math.floor(Math.random() * THEME_COLORS.length)];
+    const randomFont = THEME_FONTS[Math.floor(Math.random() * THEME_FONTS.length)];
+    setThemeColor(randomColor);
+    setFont(randomFont);
+  };
+
+  // --- Logic Helpers ---
+
+  const addTransaction = (type: 'buy' | 'sell', data: any) => {
+    const qty = parseFloat(data.qty);
+    const price = parseFloat(data.price);
+    
+    // Default client logic: 'Поставщик' for buy if empty
+    const client = (type === 'buy' && (!data.client || !data.client.trim())) 
+      ? t.lblSupplier 
+      : data.client;
+
+    const newTrans: Transaction = {
+      id: Date.now(),
+      date,
+      time: format(new Date(), 'HH:mm'),
+      type,
+      mat: data.mat,
+      qty,
+      price,
+      client,
+      method: data.method || 'cash',
+      total: qty * price,
+      is_paid: data.method !== 'debt',
+      date_repaid: undefined
+    };
+    setDb(prev => ({ ...prev, transactions: [...prev.transactions, newTrans] }));
+  };
+
+  const addProcessing = (data: any) => {
+    const newProc: Processing = {
+      id: Date.now(),
+      date,
+      time: format(new Date(), 'HH:mm'),
+      from: data.from,
+      qtyIn: parseFloat(data.qtyIn),
+      to: data.to,
+      qtyOut: parseFloat(data.qtyOut)
+    };
+    setDb(prev => ({ ...prev, processing: [...prev.processing, newProc] }));
+  };
+
+  const addExpense = (type: 'general' | 'salary', data: any) => {
+    const newExp: Expense = {
+      id: Date.now(),
+      date,
+      time: format(new Date(), 'HH:mm'),
+      cat: type === 'salary' ? 'Salary' : data.cat,
+      amt: parseFloat(data.amt),
+      desc: type === 'salary' ? data.worker : data.desc
+    };
+    setDb(prev => ({ ...prev, expenses: [...prev.expenses, newExp] }));
+  };
+
+  const deleteItem = (type: 'trans' | 'proc' | 'exp', id: number) => {
+    // Removed window.confirm here to make deletion immediate and smoother on mobile
+    setDb(prev => {
+      if (type === 'trans') return { ...prev, transactions: prev.transactions.filter(t => t.id !== id) };
+      if (type === 'proc') return { ...prev, processing: prev.processing.filter(p => p.id !== id) };
+      if (type === 'exp') return { ...prev, expenses: prev.expenses.filter(e => e.id !== id) };
+      return prev;
+    });
+  };
+
+  const payDebt = (id: number) => {
+    if (!window.confirm(t.confirmPay)) return;
+    setDb(prev => ({
+      ...prev,
+      transactions: prev.transactions.map(t => 
+        t.id === id ? { ...t, is_paid: true, date_repaid: date } : t
+      )
+    }));
+  };
+
+  // --- Reference Data Management ---
+
+  const handleAddReference = (type: 'raw' | 'product' | 'category' | 'worker', name: string) => {
+    setDb(prev => {
+      if (type === 'raw') {
+        if (prev.rawMaterials.includes(name)) return prev;
+        return { ...prev, rawMaterials: [...prev.rawMaterials, name] };
+      } 
+      if (type === 'product') {
+        if (prev.finishedGoods.includes(name)) return prev;
+        return { ...prev, finishedGoods: [...prev.finishedGoods, name] };
+      }
+      if (type === 'category') {
+        if (prev.expenseCategories.includes(name)) return prev;
+        return { ...prev, expenseCategories: [...prev.expenseCategories, name] };
+      }
+      if (type === 'worker') {
+        if (prev.workers.includes(name)) return prev;
+        return { ...prev, workers: [...prev.workers, name] };
+      }
+      return prev;
+    });
+  };
+
+  const handleDeleteReference = (type: 'raw' | 'product' | 'category' | 'worker', name: string) => {
+    setDb(prev => {
+      if (type === 'raw') return { ...prev, rawMaterials: prev.rawMaterials.filter(m => m !== name) };
+      if (type === 'product') return { ...prev, finishedGoods: prev.finishedGoods.filter(m => m !== name) };
+      if (type === 'category') return { ...prev, expenseCategories: prev.expenseCategories.filter(m => m !== name) };
+      if (type === 'worker') return { ...prev, workers: prev.workers.filter(m => m !== name) };
+      return prev;
+    });
+  };
+
+  const downloadBackup = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(db));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "ecorecycle_backup.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  // --- Calculations ---
+
+  // Combined materials list for calculations
+  const allMaterials = useMemo(() => {
+    return [...db.rawMaterials, ...db.finishedGoods];
+  }, [db.rawMaterials, db.finishedGoods]);
+
+  const stock = useMemo(() => {
+    const s: StockMap = {};
+    // Initialize dynamic materials
+    allMaterials.forEach(m => s[m] = 0);
+
+    // Calculate from history
+    db.transactions.forEach(t => {
+      if (t.type === 'buy') s[t.mat] = (s[t.mat] || 0) + t.qty;
+      if (t.type === 'sell') s[t.mat] = (s[t.mat] || 0) - t.qty;
+    });
+
+    db.processing.forEach(p => {
+      if (s[p.from] !== undefined) s[p.from] -= p.qtyIn;
+      if (s[p.to] !== undefined) s[p.to] += p.qtyOut;
+    });
+
+    return s;
+  }, [db, allMaterials]);
+
+  const stats = useMemo(() => {
+    const dayTrans = db.transactions.filter(t => t.date === date);
+    const dayExp = db.expenses.filter(e => e.date === date);
+    
+    // Income: Direct Sales (Cash/Card) + Debts Repaid Today
+    let income = dayTrans.filter(t => t.type === 'sell' && t.method !== 'debt').reduce((acc, t) => acc + t.total, 0);
+    // Add repayments made today (even if original transaction was earlier)
+    const repaymentsToday = db.transactions.filter(t => t.is_paid && t.date_repaid === date).reduce((acc, t) => acc + t.total, 0);
+    income += repaymentsToday;
+
+    // Expense: Buys + Expenses
+    const buys = dayTrans.filter(t => t.type === 'buy').reduce((acc, t) => acc + t.total, 0);
+    const ops = dayExp.reduce((acc, e) => acc + e.amt, 0);
+    const expense = buys + ops;
+
+    return { income, expense, profit: income - expense };
+  }, [db, date]);
+
+  // Filter lists for current date view
+  const dayTransactions = db.transactions.filter(t => t.date === date);
+  const dayProcessing = db.processing.filter(p => p.date === date);
+  const dayExpenses = db.expenses.filter(e => e.date === date);
+
+  if (!isAuthenticated) return <Login onLogin={handleLogin} t={t} lang={lang} setLang={setLang} themeColor={themeColor} />;
+
+  return (
+    <div className="min-h-screen pb-20 bg-slate-50/50" style={{ fontFamily: font }}>
+      {/* Navbar */}
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 px-4 py-3 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+            <div className={`bg-${themeColor}-100 p-2 rounded-lg text-${themeColor}-600`}>
+                <Calendar size={20} />
+            </div>
+            <h1 className="text-xl font-bold text-slate-800 tracking-tight">EcoRecycle <span className={`text-${themeColor}-600`}>Pro</span></h1>
+        </div>
+        
+        <div className="flex items-center gap-3">
+            <input 
+                type="date" 
+                value={date} 
+                onChange={e => setDate(e.target.value)}
+                className={`bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-${themeColor}-500 focus:border-${themeColor}-500 block p-2.5 outline-none font-medium`}
+            />
+            
+            <button 
+                onClick={handleRandomTheme}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group"
+                title="Random Theme"
+            >
+                <Dices size={20} />
+            </button>
+
+            <button 
+                onClick={() => setIsSettingsOpen(true)}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group"
+                title={t.navSettings}
+            >
+                <Settings size={20} />
+            </button>
+
+            <button 
+              onClick={() => setLang(lang === 'ru' ? 'tj' : 'ru')}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group"
+              title="Switch Language"
+            >
+              <Languages size={20} />
+              <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-xs bg-slate-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity uppercase pointer-events-none z-50">{lang}</span>
+            </button>
+
+            <button 
+                onClick={handleLogout}
+                className="text-slate-400 hover:text-rose-600 hover:bg-slate-100 p-2 rounded-lg transition-colors"
+                title={t.navLogout}
+            >
+                <LogOut size={20} />
+            </button>
+        </div>
+      </nav>
+
+      <div className="container mx-auto p-4 max-w-7xl">
+        <KPIStats {...stats} t={t} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Management */}
+            <div className="lg:col-span-5 space-y-6">
+                <OperationsPanel 
+                    stock={stock}
+                    rawMaterials={db.rawMaterials}
+                    finishedGoods={db.finishedGoods}
+                    expenseCategories={db.expenseCategories}
+                    workers={db.workers}
+                    allMaterials={allMaterials}
+                    onAddTransaction={addTransaction}
+                    onAddProcessing={addProcessing}
+                    onAddExpense={addExpense}
+                    t={t}
+                    themeColor={themeColor}
+                />
+                <StockChart stock={stock} t={t} />
+            </div>
+
+            {/* Right Column: Data & Info */}
+            <div className="lg:col-span-7 space-y-6">
+                <StockBadges stock={stock} t={t} themeColor={themeColor} />
+                <DebtList transactions={db.transactions} onPayDebt={payDebt} t={t} themeColor={themeColor} />
+                <TransactionTable 
+                    date={date}
+                    transactions={dayTransactions}
+                    processing={dayProcessing}
+                    expenses={dayExpenses}
+                    allMaterials={allMaterials}
+                    onDelete={deleteItem}
+                    t={t}
+                    themeColor={themeColor}
+                />
+            </div>
+        </div>
+      </div>
+
+      {/* Floating Action Button */}
+      <div className="fixed bottom-6 right-6">
+        <button 
+            onClick={downloadBackup}
+            className="bg-slate-800 hover:bg-slate-900 text-white p-4 rounded-full shadow-xl transition-transform hover:scale-105 flex items-center justify-center"
+            title="Download Backup"
+        >
+            <Download size={24} />
+        </button>
+      </div>
+
+      {/* Settings Modal */}
+      <SettingsModal 
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        rawMaterials={db.rawMaterials}
+        finishedGoods={db.finishedGoods}
+        expenseCategories={db.expenseCategories}
+        workers={db.workers}
+        onAdd={handleAddReference}
+        onDelete={handleDeleteReference}
+        t={t}
+        themeColor={themeColor}
+        font={font}
+        onThemeChange={setThemeColor}
+        onFontChange={setFont}
+      />
+    </div>
+  );
+};
+
+export default App;
