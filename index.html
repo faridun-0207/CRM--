@@ -9,11 +9,12 @@
     <style>
       body {
         background-color: #f3f4f6;
+        overscroll-behavior-y: none; /* Prevent pull-to-refresh on mobile */
       }
       /* Custom scrollbar for tables */
       .custom-scrollbar::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
+        width: 4px; /* Thinner */
+        height: 4px;
       }
       .custom-scrollbar::-webkit-scrollbar-track {
         background: #f1f1f1;
@@ -25,6 +26,15 @@
       .custom-scrollbar::-webkit-scrollbar-thumb:hover {
         background: #94a3b8;
       }
+      
+      /* No scrollbar utility - robust version */
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;  /* IE and Edge */
+        scrollbar-width: none;  /* Firefox */
+      }
     </style>
   <script type="importmap">
 {
@@ -34,7 +44,14 @@
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "recharts": "https://aistudiocdn.com/recharts@^3.4.1",
     "lucide-react": "https://aistudiocdn.com/lucide-react@^0.554.0",
-    "date-fns": "https://aistudiocdn.com/date-fns@^4.1.0"
+    "date-fns": "https://aistudiocdn.com/date-fns@^4.1.0",
+    "jspdf": "https://esm.sh/jspdf@2.5.1",
+    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2",
+    "docx": "https://esm.sh/docx@7.8.2",
+    "file-saver": "https://esm.sh/file-saver@2.0.5",
+    "firebase/app": "https://esm.sh/firebase@10.8.1/app",
+    "firebase/firestore": "https://esm.sh/firebase@10.8.1/firestore",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
   }
 }
 </script>

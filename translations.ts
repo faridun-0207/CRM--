@@ -14,8 +14,18 @@ export const translations = {
     settingsTitle: "Управление материалами",
     settingsAppearance: "Внешний вид",
     settingsFinance: "Финансы и Сотрудники",
+    settingsCloud: "Google Cloud",
     lblThemeColor: "Цвет темы",
     lblFont: "Шрифт",
+    
+    cloudConfigTitle: "Настройка Firebase",
+    cloudConfigDesc: "Введите параметры конфигурации вашего проекта Firebase для синхронизации данных.",
+    lblApiKey: "API Key",
+    lblProjectId: "Project ID",
+    btnConnect: "Подключить и Синхронизировать",
+    cloudConnected: "Подключено к Google Cloud",
+    cloudError: "Ошибка подключения",
+    cloudNote: "Примечание: Убедитесь, что в правилах Firestore разрешен доступ (read/write).",
     
     kpiIncome: "Доход",
     kpiExpense: "Расходы",
@@ -104,7 +114,16 @@ export const translations = {
     monthlyStats: "Статистика за месяц",
     topSales: "Продажи по товарам",
     topExpenses: "Расходы по категориям",
-    msgSwitchToDay: "Переключитесь на режим 'День' для добавления операций"
+    msgSwitchToDay: "Переключитесь на режим 'День' для добавления операций",
+    
+    exportPdf: "Экспорт в PDF",
+    exportDocx: "Экспорт в Word",
+    exportReport: "Экспорт отчета",
+    exportStock: "Экспорт остатков",
+    
+    repSummary: "Сводка за период",
+    repTotalTrans: "Всего операций",
+    repGenerated: "Сгенерировано"
   },
   tj: {
     loginTitle: "Воридшавӣ ба система",
@@ -119,8 +138,18 @@ export const translations = {
     settingsTitle: "Идоракунии маводҳо",
     settingsAppearance: "Намуди зоҳирӣ",
     settingsFinance: "Молия ва Кормандон",
+    settingsCloud: "Google Cloud",
     lblThemeColor: "Ранги мавзӯъ",
     lblFont: "Шрифт",
+
+    cloudConfigTitle: "Танзимоти Firebase",
+    cloudConfigDesc: "Танзимоти лоиҳаи Firebase-и худро барои ҳамоҳангсозии маълумот ворид кунед.",
+    lblApiKey: "API Key",
+    lblProjectId: "Project ID",
+    btnConnect: "Пайваст ва Ҳамоҳангсозӣ",
+    cloudConnected: "Ба Google Cloud пайваст шуд",
+    cloudError: "Хатогии пайвастшавӣ",
+    cloudNote: "Эзоҳ: Боварӣ ҳосил кунед, ки дар қоидаҳои Firestore дастрасӣ (read/write) иҷозат дода шудааст.",
     
     kpiIncome: "Даромад",
     kpiExpense: "Хароҷот",
@@ -209,7 +238,16 @@ export const translations = {
     monthlyStats: "Омори моҳона",
     topSales: "Фурӯш аз рӯи молҳо",
     topExpenses: "Хароҷот аз рӯи категорияҳо",
-    msgSwitchToDay: "Барои илова кардани амалиёт ба реҷаи 'Рӯз' гузаред"
+    msgSwitchToDay: "Барои илова кардани амалиёт ба реҷаи 'Рӯз' гузаред",
+    
+    exportPdf: "Содирот ба PDF",
+    exportDocx: "Содирот ба Word",
+    exportReport: "Содироти ҳисобот",
+    exportStock: "Содироти боқимонда",
+
+    repSummary: "Хулосаи давра",
+    repTotalTrans: "Ҷамъи амалиётҳо",
+    repGenerated: "Тавлидшуда"
   }
 };
 

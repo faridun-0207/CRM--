@@ -1,9 +1,14 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { Transaction, Processing, Expense } from '../types';
-import { ArrowDown, ArrowUp, Factory, Trash2, Filter, ArrowUpDown, ChevronUp, ChevronDown, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, Factory, Trash2, Filter, ArrowUpDown, ChevronUp, ChevronDown, Search, Download, FileText, FileDown } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Translation } from '../translations';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { Document, Packer, Paragraph, Table, TableCell, TableRow, TextRun, WidthType, BorderStyle, AlignmentType, HeadingLevel, ShadingType } from 'docx';
+import FileSaver from 'file-saver';
 
 interface TransactionTableProps {
   date: string;
@@ -26,6 +31,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
   // State for Filtering
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [matFilter, setMatFilter] = useState<string>('all');
+  const [isExporting, setIsExporting] = useState(false);
 
   // State for Sorting
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({
@@ -142,6 +148,313 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
      return format(parseISO(date), 'dd.MM.yyyy');
   }
 
+  // Helper to extract clean text data for export
+  const getItemData = (item: any) => {
+    let dateStr = item.time;
+    if (viewMode === 'monthly') {
+        try {
+            dateStr = format(parseISO(item.date), 'dd.MM') + ' ' + item.time;
+        } catch (e) { dateStr = item.date + ' ' + item.time }
+    }
+  
+    let typeStr = '';
+    let detailsStr = '';
+    let sumStr = '';
+    let rawSum = 0;
+  
+    if (item.kind === 'proc') {
+        typeStr = t.filterProc;
+        detailsStr = `${item.from} -> ${item.to} (${item.qtyIn}kg -> ${item.qtyOut}kg)`;
+        sumStr = '-';
+    } else if (item.kind === 'exp') {
+        typeStr = t.filterExp;
+        detailsStr = `${item.cat} (${item.desc})`;
+        sumStr = `-${item.amt.toLocaleString()} c.`;
+        rawSum = -item.amt;
+    } else {
+        const isBuy = item.type === 'buy';
+        typeStr = isBuy ? t.filterBuy : t.filterSell;
+        if (item.method === 'debt') typeStr += ` (${t.optDebt.replace('⚠️ ', '')})`;
+        detailsStr = `${item.mat} - ${item.client}`;
+        sumStr = `${isBuy ? '-' : '+'}${item.total.toLocaleString()} c.`;
+        rawSum = isBuy ? -item.total : item.total;
+    }
+    
+    return { date: dateStr, type: typeStr, details: detailsStr, sum: sumStr, rawSum };
+  }
+
+  const calculateReportTotals = () => {
+      let income = 0;
+      let expense = 0;
+      
+      processedData.forEach(item => {
+          if (item.kind === 'trans') {
+              const t = item as Transaction;
+              if (t.type === 'sell') income += t.total;
+              else if (t.type === 'buy') expense += t.total;
+          } else if (item.kind === 'exp') {
+              expense += (item as Expense).amt;
+          }
+      });
+
+      return { income, expense, profit: income - expense };
+  };
+
+  const exportPDF = async () => {
+    setIsExporting(true);
+    try {
+        const doc = new jsPDF();
+        const totals = calculateReportTotals();
+        
+        // --- 1. Load Font (Cyrillic Support) ---
+        const fontUrl = 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf';
+        const fontBytes = await fetch(fontUrl).then(res => res.arrayBuffer());
+        const fontUint8Array = new Uint8Array(fontBytes);
+        let fontBinaryString = "";
+        for (let i = 0; i < fontUint8Array.length; i++) {
+            fontBinaryString += String.fromCharCode(fontUint8Array[i]);
+        }
+        
+        doc.addFileToVFS('Roboto-Regular.ttf', fontBinaryString);
+        doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
+        doc.setFont('Roboto');
+
+        // --- 2. Header & Branding ---
+        // Header Background
+        doc.setFillColor(31, 41, 55); // Slate 800
+        doc.rect(0, 0, 210, 40, 'F');
+        
+        // Title
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(24);
+        doc.text("EcoRecycle PRO", 14, 20);
+        
+        doc.setFontSize(10);
+        doc.setTextColor(156, 163, 175); // Slate 400
+        doc.text(t.tableTitle.toUpperCase(), 14, 30);
+
+        // Date Info (Right side)
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(12);
+        doc.text(formatDateTitle(), 196, 20, { align: 'right' });
+        doc.setFontSize(9);
+        doc.setTextColor(156, 163, 175);
+        doc.text(`${t.repGenerated}: ${format(new Date(), 'dd.MM.yyyy HH:mm')}`, 196, 30, { align: 'right' });
+
+        // --- 3. Summary Dashboard (Cards) ---
+        const startY = 50;
+        
+        // Card 1: Income (Green)
+        doc.setFillColor(236, 253, 245); // Emerald 50
+        doc.setDrawColor(16, 185, 129); // Emerald 500
+        doc.roundedRect(14, startY, 58, 24, 2, 2, 'FD');
+        doc.setFontSize(9);
+        doc.setTextColor(6, 95, 70);
+        doc.text(t.kpiIncome.toUpperCase(), 18, startY + 8);
+        doc.setFontSize(14);
+        doc.setTextColor(4, 120, 87);
+        doc.text(`+${totals.income.toLocaleString()} c.`, 18, startY + 18);
+
+        // Card 2: Expense (Red)
+        doc.setFillColor(255, 241, 242); // Rose 50
+        doc.setDrawColor(244, 63, 94); // Rose 500
+        doc.roundedRect(76, startY, 58, 24, 2, 2, 'FD');
+        doc.setFontSize(9);
+        doc.setTextColor(159, 18, 57);
+        doc.text(t.kpiExpense.toUpperCase(), 80, startY + 8);
+        doc.setFontSize(14);
+        doc.setTextColor(190, 18, 60);
+        doc.text(`-${totals.expense.toLocaleString()} c.`, 80, startY + 18);
+
+        // Card 3: Profit (Blue)
+        doc.setFillColor(239, 246, 255); // Blue 50
+        doc.setDrawColor(59, 130, 246); // Blue 500
+        doc.roundedRect(138, startY, 58, 24, 2, 2, 'FD');
+        doc.setFontSize(9);
+        doc.setTextColor(30, 58, 138);
+        doc.text(t.kpiProfit.toUpperCase(), 142, startY + 8);
+        doc.setFontSize(14);
+        doc.setTextColor(29, 78, 216);
+        doc.text(`${totals.profit.toLocaleString()} c.`, 142, startY + 18);
+
+
+        // --- 4. Data Table ---
+        const tableColumn = [
+            viewMode === 'monthly' ? t.colDate : t.colTime,
+            t.colType,
+            t.colDetails,
+            t.colSum
+        ];
+
+        const tableRows = processedData.map(item => {
+            const data = getItemData(item);
+            return [data.date, data.type, data.details, data.sum];
+        });
+
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: startY + 35,
+            styles: { 
+                font: 'Roboto', 
+                fontStyle: 'normal',
+                fontSize: 9,
+                cellPadding: 3
+            },
+            headStyles: { 
+                fillColor: [55, 65, 81], // Slate 700
+                textColor: [255, 255, 255],
+                fontStyle: 'bold'
+            },
+            alternateRowStyles: {
+                fillColor: [249, 250, 251] // Gray 50
+            },
+            columnStyles: {
+                3: { halign: 'right', fontStyle: 'bold' }
+            },
+            // --- 5. "Hologram" / Watermark Effect ---
+            didDrawPage: (data) => {
+                // Draw Watermark on every page
+                doc.saveGraphicsState();
+                // Fix: Cast doc to any to access GState constructor
+                doc.setGState(new (doc as any).GState({ opacity: 0.04 }));
+                
+                // Draw a large circle seal
+                const cx = doc.internal.pageSize.width / 2;
+                const cy = doc.internal.pageSize.height / 2;
+                
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(2);
+                doc.circle(cx, cy, 60, 'S');
+                doc.circle(cx, cy, 55, 'S');
+                
+                doc.setFontSize(20);
+                doc.setTextColor(0, 0, 0);
+                
+                // Rotate text
+                const text = "EcoRecycle PRO";
+                const angle = 45;
+                const rad = angle * (Math.PI / 180);
+                
+                doc.text(text, cx, cy, { align: 'center', angle: 45 });
+                doc.text("OFFICIAL REPORT", cx, cy + 20, { align: 'center', angle: 45 });
+                
+                doc.restoreGraphicsState();
+
+                // Footer
+                // Fix: Use doc.getNumberOfPages() instead of doc.internal.getNumberOfPages()
+                const pageCount = doc.getNumberOfPages();
+                doc.setFontSize(8);
+                doc.setTextColor(150);
+                doc.text(`Page ${pageCount}`, 196, doc.internal.pageSize.height - 10, { align: 'right' });
+                doc.text(`EcoRecycle CRM`, 14, doc.internal.pageSize.height - 10);
+            }
+        });
+
+        doc.save(`EcoRecycle_Report_${date}.pdf`);
+    } catch (error) {
+        console.error("Export PDF Error:", error);
+        alert("Error generating PDF. Please check your internet connection for font loading.");
+    } finally {
+        setIsExporting(false);
+    }
+  };
+
+  const exportDocx = () => {
+    setIsExporting(true);
+    try {
+        const totals = calculateReportTotals();
+
+        // 1. Summary Table (Invisible borders, just layout)
+        const summaryTable = new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [
+                new TableRow({
+                    children: [
+                        new TableCell({
+                            children: [
+                                // Fix: Use TextRun for styling instead of Paragraph properties
+                                new Paragraph({ children: [new TextRun({ text: t.kpiIncome, color: "047857" })] }),
+                                new Paragraph({ children: [new TextRun({ text: `+${totals.income.toLocaleString()} c.`, bold: true, size: 28, color: "047857" })] })
+                            ],
+                            shading: { fill: "ECFDF5", type: ShadingType.CLEAR, color: "auto" }, // Emerald 50
+                            width: { size: 33, type: WidthType.PERCENTAGE },
+                            margins: { top: 200, bottom: 200, left: 200, right: 200 }
+                        }),
+                        new TableCell({
+                            children: [
+                                new Paragraph({ children: [new TextRun({ text: t.kpiExpense, color: "BE123C" })] }),
+                                new Paragraph({ children: [new TextRun({ text: `-${totals.expense.toLocaleString()} c.`, bold: true, size: 28, color: "BE123C" })] })
+                            ],
+                            shading: { fill: "FFF1F2", type: ShadingType.CLEAR, color: "auto" }, // Rose 50
+                            width: { size: 33, type: WidthType.PERCENTAGE },
+                             margins: { top: 200, bottom: 200, left: 200, right: 200 }
+                        }),
+                        new TableCell({
+                            children: [
+                                new Paragraph({ children: [new TextRun({ text: t.kpiProfit, color: "1D4ED8" })] }),
+                                new Paragraph({ children: [new TextRun({ text: `${totals.profit.toLocaleString()} c.`, bold: true, size: 28, color: "1D4ED8" })] })
+                            ],
+                            shading: { fill: "EFF6FF", type: ShadingType.CLEAR, color: "auto" }, // Blue 50
+                            width: { size: 33, type: WidthType.PERCENTAGE },
+                             margins: { top: 200, bottom: 200, left: 200, right: 200 }
+                        }),
+                    ]
+                })
+            ]
+        });
+
+        // 2. Data Table
+        const tableRows = processedData.map(item => {
+            const data = getItemData(item);
+            return new TableRow({
+                children: [
+                    new TableCell({ children: [new Paragraph(data.date)], width: { size: 15, type: WidthType.PERCENTAGE } }),
+                    new TableCell({ children: [new Paragraph(data.type)], width: { size: 15, type: WidthType.PERCENTAGE } }),
+                    new TableCell({ children: [new Paragraph(data.details)], width: { size: 50, type: WidthType.PERCENTAGE } }),
+                    new TableCell({ children: [new Paragraph({ text: data.sum, alignment: AlignmentType.RIGHT })], width: { size: 20, type: WidthType.PERCENTAGE } }),
+                ]
+            });
+        });
+
+        const headerRow = new TableRow({
+            children: [
+                new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: viewMode === 'monthly' ? t.colDate : t.colTime, bold: true, color: "FFFFFF" })] })], shading: { fill: "374151" } }),
+                new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t.colType, bold: true, color: "FFFFFF" })] })], shading: { fill: "374151" } }),
+                new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t.colDetails, bold: true, color: "FFFFFF" })] })], shading: { fill: "374151" } }),
+                new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: t.colSum, bold: true, color: "FFFFFF" })], alignment: AlignmentType.RIGHT })], shading: { fill: "374151" } }),
+            ],
+            tableHeader: true
+        });
+
+        const doc = new Document({
+            sections: [{
+                properties: {},
+                children: [
+                    new Paragraph({ text: "EcoRecycle PRO", heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }),
+                    new Paragraph({ text: t.tableTitle, heading: HeadingLevel.HEADING_2, alignment: AlignmentType.CENTER }),
+                    new Paragraph({ text: `Date: ${formatDateTitle()}`, alignment: AlignmentType.CENTER }),
+                    new Paragraph({ text: "" }), // spacing
+                    summaryTable,
+                    new Paragraph({ text: "" }), // spacing
+                    new Table({
+                        rows: [headerRow, ...tableRows],
+                        width: { size: 100, type: WidthType.PERCENTAGE },
+                    })
+                ]
+            }]
+        });
+
+        Packer.toBlob(doc).then(blob => {
+            FileSaver.saveAs(blob, `EcoRecycle_Report_${date}.docx`);
+            setIsExporting(false);
+        });
+    } catch (error) {
+        console.error("Export DOCX Error:", error);
+        setIsExporting(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col max-h-[600px]">
       <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -150,7 +463,7 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
         </div>
         
         {/* Filters */}
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-sm flex-wrap">
           <div className="relative">
             <Filter size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <select 
@@ -178,6 +491,27 @@ export const TransactionTable: React.FC<TransactionTableProps> = ({
                 <option value="all">{t.filterAllMats}</option>
                 {allMaterials.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
+          </div>
+
+          <div className="flex items-center gap-1 ml-auto sm:ml-2 pl-0 sm:pl-2 border-l-0 sm:border-l border-slate-200">
+            <button 
+                onClick={exportPDF} 
+                disabled={isExporting}
+                className="px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 rounded transition-colors flex items-center gap-1" 
+                title={t.exportPdf}
+            >
+                <FileText size={14} />
+                PDF
+            </button>
+            <button 
+                onClick={exportDocx} 
+                disabled={isExporting}
+                className="px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 rounded transition-colors flex items-center gap-1" 
+                title={t.exportDocx}
+            >
+                <FileDown size={14} />
+                DOCX
+            </button>
           </div>
         </div>
       </div>

@@ -1,6 +1,4 @@
-
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Login } from './components/Login';
 import { KPIStats } from './components/KPIStats';
 import { OperationsPanel } from './components/OperationsPanel';
@@ -11,16 +9,18 @@ import { StockBadges } from './components/StockBadges';
 import { SettingsModal } from './components/SettingsModal';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { Transaction, Processing, Expense, Database, StockMap } from './types';
-import { Download, LogOut, Calendar, Languages, Settings, Dices, LayoutList } from 'lucide-react';
+import { Download, LogOut, Calendar, Languages, Settings, Dices, LayoutList, Cloud } from 'lucide-react';
 import { DEFAULT_RAW_MATERIALS, DEFAULT_FINISHED_GOODS, EXPENSE_CATEGORIES, WORKERS, THEME_COLORS, THEME_FONTS } from './constants';
 import { format } from 'date-fns';
 import { translations, Lang } from './translations';
+import { initFirebase, saveToCloud, loadFromCloud } from './firebase';
 
 const STORAGE_KEY = 'ecorecycle_db_v1';
 const AUTH_KEY = 'ecorecycle_auth';
 const LANG_KEY = 'ecorecycle_lang';
 const THEME_KEY = 'ecorecycle_theme';
 const FONT_KEY = 'ecorecycle_font';
+const CLOUD_CONFIG_KEY = 'ecorecycle_firebase_config';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [themeColor, setThemeColor] = useState('teal');
   const [font, setFont] = useState('Inter');
+  const [isCloudConnected, setIsCloudConnected] = useState(false);
   
   // Database State
   const [db, setDb] = useState<Database>({
@@ -42,22 +43,14 @@ const App: React.FC = () => {
     workers: WORKERS
   });
 
+  // Ref to prevent cloud save on initial load
+  const isInitialLoad = useRef(true);
+
   // Load Data
   useEffect(() => {
     const savedAuth = localStorage.getItem(AUTH_KEY);
     if (savedAuth === 'true') setIsAuthenticated(true);
 
-    const savedDb = localStorage.getItem(STORAGE_KEY);
-    if (savedDb) {
-      const parsed = JSON.parse(savedDb);
-      // Migration: ensure lists exist
-      if (!parsed.rawMaterials) parsed.rawMaterials = DEFAULT_RAW_MATERIALS;
-      if (!parsed.finishedGoods) parsed.finishedGoods = DEFAULT_FINISHED_GOODS;
-      if (!parsed.expenseCategories) parsed.expenseCategories = EXPENSE_CATEGORIES;
-      if (!parsed.workers) parsed.workers = WORKERS;
-      setDb(parsed);
-    }
-    
     const savedLang = localStorage.getItem(LANG_KEY) as Lang;
     if (savedLang && (savedLang === 'ru' || savedLang === 'tj')) {
       setLang(savedLang);
@@ -68,12 +61,69 @@ const App: React.FC = () => {
 
     const savedFont = localStorage.getItem(FONT_KEY);
     if (savedFont) setFont(savedFont);
+
+    // Initialize Cloud
+    const cloudConfig = localStorage.getItem(CLOUD_CONFIG_KEY);
+    let cloudInitialized = false;
+    if (cloudConfig) {
+        try {
+            const config = JSON.parse(cloudConfig);
+            if (config.apiKey && config.projectId) {
+                if (initFirebase(config)) {
+                    setIsCloudConnected(true);
+                    cloudInitialized = true;
+                    // Attempt to load from cloud first
+                    loadFromCloud().then(cloudData => {
+                        if (cloudData) {
+                             // Use cloud data
+                             setDb(cloudData as Database);
+                             isInitialLoad.current = false;
+                        } else {
+                            // Fallback to local if cloud empty or error
+                            loadLocalData();
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("Cloud Config Error", e);
+        }
+    }
+
+    if (!cloudInitialized) {
+        loadLocalData();
+    }
   }, []);
 
-  // Save Data
+  const loadLocalData = () => {
+    const savedDb = localStorage.getItem(STORAGE_KEY);
+    if (savedDb) {
+      const parsed = JSON.parse(savedDb);
+      // Migration: ensure lists exist
+      if (!parsed.rawMaterials) parsed.rawMaterials = DEFAULT_RAW_MATERIALS;
+      if (!parsed.finishedGoods) parsed.finishedGoods = DEFAULT_FINISHED_GOODS;
+      if (!parsed.expenseCategories) parsed.expenseCategories = EXPENSE_CATEGORIES;
+      if (!parsed.workers) parsed.workers = WORKERS;
+      setDb(parsed);
+    }
+    isInitialLoad.current = false;
+  };
+
+  // Save Data (Local + Cloud)
   useEffect(() => {
+    if (isInitialLoad.current) return;
+
+    // Save Local
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  }, [db]);
+
+    // Save Cloud (Debounced)
+    if (isCloudConnected) {
+        const timeoutId = setTimeout(() => {
+            saveToCloud(db);
+        }, 2000); // 2s debounce
+        return () => clearTimeout(timeoutId);
+    }
+  }, [db, isCloudConnected]);
   
   // Save Lang
   useEffect(() => {
@@ -304,80 +354,78 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen pb-20 bg-slate-50/50" style={{ fontFamily: font }}>
       {/* Navbar */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 px-4 py-3 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-            <div className={`bg-${themeColor}-100 p-2 rounded-lg text-${themeColor}-600`}>
-                <Calendar size={20} />
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 px-2 py-2 shadow-sm flex items-center justify-between gap-2 overflow-hidden">
+        <div className="flex items-center gap-1.5 shrink-0">
+            <div className={`bg-${themeColor}-100 p-1 rounded-lg text-${themeColor}-600`}>
+                <Calendar size={18} />
             </div>
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">EcoRecycle <span className={`text-${themeColor}-600`}>Pro</span></h1>
+            <h1 className="text-base font-bold text-slate-800 tracking-tight hidden sm:block">EcoRecycle <span className={`text-${themeColor}-600`}>Pro</span></h1>
+            <h1 className="text-base font-bold text-slate-800 tracking-tight sm:hidden">Eco<span className={`text-${themeColor}-600`}>Recycle</span></h1>
+            {isCloudConnected && (
+                <div title={t.cloudConnected} className="text-emerald-500 animate-pulse ml-1">
+                    <Cloud size={14} />
+                </div>
+            )}
         </div>
         
-        <div className="flex items-center gap-3 overflow-x-auto pb-1 md:pb-0 no-scrollbar">
-            <div className="flex items-center bg-slate-100 rounded-lg p-1 shrink-0">
-                <button 
-                    onClick={() => toggleViewMode('daily')}
-                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'daily' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    {t.viewDay}
-                </button>
-                <button 
-                     onClick={() => toggleViewMode('monthly')}
-                     className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                    {t.viewMonth}
-                </button>
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0 no-scrollbar">
+            {/* Date Picker Area */}
+            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 shrink-0">
+                <input 
+                    type={viewMode === 'daily' ? 'date' : 'month'}
+                    value={date} 
+                    onChange={e => setDate(e.target.value)}
+                    className={`bg-transparent border-none text-slate-700 text-xs font-semibold focus:ring-0 block px-1 py-0.5 outline-none w-[110px]`}
+                />
             </div>
-
-            <input 
-                type={viewMode === 'daily' ? 'date' : 'month'}
-                value={date} 
-                onChange={e => setDate(e.target.value)}
-                className={`bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg focus:ring-${themeColor}-500 focus:border-${themeColor}-500 block p-2 outline-none font-medium w-36 shrink-0`}
-            />
             
-            <div className="w-px h-8 bg-slate-200 mx-1 shrink-0"></div>
+            <button 
+                 onClick={() => toggleViewMode(viewMode === 'daily' ? 'monthly' : 'daily')}
+                 className={`p-1.5 rounded-lg text-xs font-medium transition-all shrink-0 bg-slate-100 text-slate-600`}
+                 title={viewMode === 'daily' ? t.viewMonth : t.viewDay}
+            >
+                {viewMode === 'daily' ? <LayoutList size={16} /> : <Calendar size={16} />}
+            </button>
+
+            <div className="w-px h-5 bg-slate-200 mx-0.5 shrink-0"></div>
 
             <button 
                 onClick={handleRandomTheme}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors shrink-0"
-                title="Random Theme"
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-1.5 rounded-lg transition-colors shrink-0"
             >
-                <Dices size={20} />
+                <Dices size={16} />
             </button>
 
             <button 
                 onClick={() => setIsSettingsOpen(true)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors shrink-0"
-                title={t.navSettings}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-1.5 rounded-lg transition-colors shrink-0"
             >
-                <Settings size={20} />
+                <Settings size={16} />
             </button>
 
             <button 
               onClick={() => setLang(lang === 'ru' ? 'tj' : 'ru')}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-lg transition-colors relative group shrink-0"
-              title="Switch Language"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-1.5 rounded-lg transition-colors relative group shrink-0"
             >
-              <Languages size={20} />
+              <Languages size={16} />
               <span className="absolute -bottom-8 right-0 text-xs bg-slate-800 text-white px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity uppercase pointer-events-none z-50">{lang}</span>
             </button>
 
             <button 
                 onClick={handleLogout}
-                className="text-slate-400 hover:text-rose-600 hover:bg-slate-100 p-2 rounded-lg transition-colors shrink-0"
-                title={t.navLogout}
+                className="text-slate-400 hover:text-rose-600 hover:bg-slate-100 p-1.5 rounded-lg transition-colors shrink-0"
             >
-                <LogOut size={20} />
+                <LogOut size={16} />
             </button>
         </div>
       </nav>
 
-      <div className="container mx-auto p-4 max-w-7xl">
+      <div className="container mx-auto p-3 max-w-7xl">
         <KPIStats {...stats} t={t} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
             {/* Left Column: Management or Analysis */}
-            <div className="lg:col-span-5 space-y-6">
+            <div className="lg:col-span-5 space-y-3">
                 {viewMode === 'daily' ? (
                     <OperationsPanel 
                         stock={stock}
@@ -396,6 +444,7 @@ const App: React.FC = () => {
                     <AnalysisPanel 
                         transactions={filteredTransactions}
                         expenses={filteredExpenses}
+                        stats={stats}
                         t={t}
                         themeColor={themeColor}
                     />
@@ -404,7 +453,7 @@ const App: React.FC = () => {
             </div>
 
             {/* Right Column: Data & Info */}
-            <div className="lg:col-span-7 space-y-6">
+            <div className="lg:col-span-7 space-y-3">
                 <StockBadges stock={stock} t={t} themeColor={themeColor} />
                 <DebtList transactions={db.transactions} onPayDebt={payDebt} t={t} themeColor={themeColor} />
                 <TransactionTable 
@@ -423,13 +472,13 @@ const App: React.FC = () => {
       </div>
 
       {/* Floating Action Button */}
-      <div className="fixed bottom-6 right-6">
+      <div className="fixed bottom-6 right-6 z-40">
         <button 
             onClick={downloadBackup}
-            className="bg-slate-800 hover:bg-slate-900 text-white p-4 rounded-full shadow-xl transition-transform hover:scale-105 flex items-center justify-center"
+            className="bg-slate-800 hover:bg-slate-900 text-white p-3 rounded-full shadow-xl transition-transform hover:scale-105 flex items-center justify-center"
             title="Download Backup"
         >
-            <Download size={24} />
+            <Download size={20} />
         </button>
       </div>
 

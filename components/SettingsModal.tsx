@@ -1,9 +1,10 @@
 
 
-import React, { useState } from 'react';
-import { X, Plus, Trash2, Settings, Palette } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Plus, Trash2, Settings, Palette, Cloud, CheckCircle, AlertTriangle } from 'lucide-react';
 import { Translation } from '../translations';
 import { THEME_COLORS, THEME_FONTS } from '../constants';
+import { initFirebase, loadFromCloud } from '../firebase';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,10 +25,35 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen, onClose, rawMaterials, finishedGoods, expenseCategories, workers, onAdd, onDelete, t, themeColor, font, onThemeChange, onFontChange
 }) => {
+  const [activeTab, setActiveTab] = useState<'materials' | 'appearance' | 'cloud'>('materials');
+  
+  // Materials Inputs
   const [newRaw, setNewRaw] = useState('');
   const [newProduct, setNewProduct] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [newWorker, setNewWorker] = useState('');
+
+  // Cloud Inputs
+  const [firebaseConfig, setFirebaseConfig] = useState({
+      apiKey: '',
+      authDomain: '',
+      projectId: '',
+      storageBucket: '',
+      messagingSenderId: '',
+      appId: ''
+  });
+  const [cloudStatus, setCloudStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  useEffect(() => {
+    if (isOpen) {
+        const savedConfig = localStorage.getItem('ecorecycle_firebase_config');
+        if (savedConfig) {
+            try {
+                setFirebaseConfig(JSON.parse(savedConfig));
+            } catch (e) {}
+        }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -42,6 +68,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleDeleteClick = (e: React.MouseEvent, type: 'raw' | 'product' | 'category' | 'worker', name: string) => {
     e.stopPropagation();
     onDelete(type, name);
+  };
+
+  const saveCloudConfig = async () => {
+    if (!firebaseConfig.apiKey || !firebaseConfig.projectId) return;
+    
+    // Save to local storage
+    localStorage.setItem('ecorecycle_firebase_config', JSON.stringify(firebaseConfig));
+    
+    // Try to init
+    const success = initFirebase(firebaseConfig);
+    if (success) {
+        setCloudStatus('success');
+        // Trigger a reload to sync? For now just visual feedback
+        setTimeout(() => window.location.reload(), 1500);
+    } else {
+        setCloudStatus('error');
+    }
   };
 
   const ListSection = ({ title, color, list, type, newVal, setVal }: { title: string, color: string, list: string[], type: 'raw' | 'product' | 'category' | 'worker', newVal: string, setVal: (s: string) => void }) => (
@@ -95,88 +138,204 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <X size={24} />
           </button>
         </div>
+
+        {/* Tab Navigation */}
+        <div className="flex border-b border-slate-100 px-6">
+            <button 
+                onClick={() => setActiveTab('materials')}
+                className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'materials' ? `border-${themeColor}-600 text-${themeColor}-600` : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+                {t.settingsTitle}
+            </button>
+            <button 
+                onClick={() => setActiveTab('appearance')}
+                className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors ${activeTab === 'appearance' ? `border-${themeColor}-600 text-${themeColor}-600` : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+                {t.settingsAppearance}
+            </button>
+            <button 
+                onClick={() => setActiveTab('cloud')}
+                className={`py-3 px-4 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${activeTab === 'cloud' ? `border-${themeColor}-600 text-${themeColor}-600` : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+            >
+                <Cloud size={16} />
+                {t.settingsCloud}
+            </button>
+        </div>
         
         <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
           
-          {/* Appearance Section */}
-          <div className="mb-8">
-             <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                <Palette size={18} className={`text-${themeColor}-600`} />
-                {t.settingsAppearance}
-             </h3>
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-5 rounded-xl border border-slate-100">
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-3">{t.lblThemeColor}</label>
-                    <div className="flex flex-wrap gap-3">
-                        {THEME_COLORS.map(color => (
-                            <button
-                                key={color}
-                                onClick={() => onThemeChange(color)}
-                                className={`w-8 h-8 rounded-full bg-${color}-500 transition-all shadow-sm hover:scale-110 ${themeColor === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : 'hover:ring-2 hover:ring-offset-1 hover:ring-slate-200'}`}
-                                title={color}
-                            />
-                        ))}
+          {/* Materials Tab */}
+          {activeTab === 'materials' && (
+            <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                    <ListSection 
+                    title={t.secRawMat} 
+                    color={themeColor} 
+                    list={rawMaterials} 
+                    type="raw" 
+                    newVal={newRaw} 
+                    setVal={setNewRaw} 
+                    />
+                    <ListSection 
+                    title={t.secFinGoods} 
+                    color="blue" 
+                    list={finishedGoods} 
+                    type="product" 
+                    newVal={newProduct} 
+                    setVal={setNewProduct} 
+                    />
+                </div>
+                <div className="border-t border-slate-100 my-6"></div>
+                <h3 className="text-lg font-semibold text-slate-800 mb-4">{t.settingsFinance}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <ListSection 
+                    title={t.secExpCats} 
+                    color="rose" 
+                    list={expenseCategories} 
+                    type="category" 
+                    newVal={newCategory} 
+                    setVal={setNewCategory} 
+                    />
+                    <ListSection 
+                    title={t.secWorkers} 
+                    color="purple" 
+                    list={workers} 
+                    type="worker" 
+                    newVal={newWorker} 
+                    setVal={setNewWorker} 
+                    />
+                </div>
+            </>
+          )}
+
+          {/* Appearance Tab */}
+          {activeTab === 'appearance' && (
+             <div className="space-y-6">
+                <div className="bg-slate-50 p-6 rounded-xl border border-slate-100">
+                    <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                        <Palette size={18} className={`text-${themeColor}-600`} />
+                        {t.settingsAppearance}
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-3">{t.lblThemeColor}</label>
+                            <div className="flex flex-wrap gap-3">
+                                {THEME_COLORS.map(color => (
+                                    <button
+                                        key={color}
+                                        onClick={() => onThemeChange(color)}
+                                        className={`w-10 h-10 rounded-full bg-${color}-500 transition-all shadow-sm hover:scale-110 ${themeColor === color ? 'ring-2 ring-offset-2 ring-slate-400 scale-110' : 'hover:ring-2 hover:ring-offset-1 hover:ring-slate-200'}`}
+                                        title={color}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-3">{t.lblFont}</label>
+                            <select 
+                                value={font} 
+                                onChange={(e) => onFontChange(e.target.value)}
+                                className={`w-full p-2.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-900 focus:border-${themeColor}-500 focus:ring-1 focus:ring-${themeColor}-500`}
+                                style={{ fontFamily: font, colorScheme: 'light' }}
+                            >
+                                {THEME_FONTS.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
+                            </select>
+                        </div>
                     </div>
                 </div>
-                <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-3">{t.lblFont}</label>
-                    <select 
-                        value={font} 
-                        onChange={(e) => onFontChange(e.target.value)}
-                        className={`w-full p-2.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-900 focus:border-${themeColor}-500 focus:ring-1 focus:ring-${themeColor}-500`}
-                        style={{ fontFamily: font, colorScheme: 'light' }}
-                    >
-                        {THEME_FONTS.map(f => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
-                    </select>
-                </div>
              </div>
-          </div>
+          )}
 
-          <div className="border-t border-slate-100 my-6"></div>
+          {/* Google Cloud Tab */}
+          {activeTab === 'cloud' && (
+             <div className="space-y-6">
+                 <div className="bg-slate-50 p-6 rounded-xl border border-slate-100 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                        <Cloud size={120} />
+                    </div>
+                    
+                    <h3 className="text-lg font-semibold text-slate-800 mb-2">{t.cloudConfigTitle}</h3>
+                    <p className="text-slate-500 text-sm mb-6">{t.cloudConfigDesc}</p>
 
-          {/* Materials Section */}
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">{t.settingsTitle}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            <ListSection 
-              title={t.secRawMat} 
-              color={themeColor} 
-              list={rawMaterials} 
-              type="raw" 
-              newVal={newRaw} 
-              setVal={setNewRaw} 
-            />
-            <ListSection 
-              title={t.secFinGoods} 
-              color="blue" 
-              list={finishedGoods} 
-              type="product" 
-              newVal={newProduct} 
-              setVal={setNewProduct} 
-            />
-          </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="col-span-1 md:col-span-2">
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{t.lblApiKey}</label>
+                            <input 
+                                type="text"
+                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800"
+                                value={firebaseConfig.apiKey}
+                                onChange={e => setFirebaseConfig({...firebaseConfig, apiKey: e.target.value})}
+                                placeholder="AIzaSy..."
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">{t.lblProjectId}</label>
+                            <input 
+                                type="text"
+                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800"
+                                value={firebaseConfig.projectId}
+                                onChange={e => setFirebaseConfig({...firebaseConfig, projectId: e.target.value})}
+                                placeholder="ecorecycle-123"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Auth Domain</label>
+                            <input 
+                                type="text"
+                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800"
+                                value={firebaseConfig.authDomain}
+                                onChange={e => setFirebaseConfig({...firebaseConfig, authDomain: e.target.value})}
+                                placeholder="ecorecycle-123.firebaseapp.com"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Storage Bucket</label>
+                            <input 
+                                type="text"
+                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800"
+                                value={firebaseConfig.storageBucket}
+                                onChange={e => setFirebaseConfig({...firebaseConfig, storageBucket: e.target.value})}
+                                placeholder="ecorecycle-123.appspot.com"
+                            />
+                        </div>
+                         <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">App ID</label>
+                            <input 
+                                type="text"
+                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-800"
+                                value={firebaseConfig.appId}
+                                onChange={e => setFirebaseConfig({...firebaseConfig, appId: e.target.value})}
+                                placeholder="1:123456789:web:abcdef..."
+                            />
+                        </div>
+                    </div>
 
-          <div className="border-t border-slate-100 my-6"></div>
+                    <div className="mt-6 flex items-center justify-between">
+                        <div className="text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-100 flex items-center gap-2">
+                             <AlertTriangle size={14} />
+                             {t.cloudNote}
+                        </div>
+                        <button 
+                            onClick={saveCloudConfig}
+                            className={`px-6 py-2.5 rounded-lg font-medium text-white transition-all flex items-center gap-2 ${cloudStatus === 'success' ? 'bg-emerald-500 hover:bg-emerald-600' : `bg-${themeColor}-600 hover:bg-${themeColor}-700`}`}
+                        >
+                            {cloudStatus === 'success' ? (
+                                <>
+                                    <CheckCircle size={18} />
+                                    {t.cloudConnected}
+                                </>
+                            ) : (
+                                <>
+                                    <Cloud size={18} />
+                                    {t.btnConnect}
+                                </>
+                            )}
+                        </button>
+                    </div>
+                 </div>
+             </div>
+          )}
 
-          {/* Finance & Workers Section */}
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">{t.settingsFinance}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <ListSection 
-              title={t.secExpCats} 
-              color="rose" 
-              list={expenseCategories} 
-              type="category" 
-              newVal={newCategory} 
-              setVal={setNewCategory} 
-            />
-            <ListSection 
-              title={t.secWorkers} 
-              color="purple" 
-              list={workers} 
-              type="worker" 
-              newVal={newWorker} 
-              setVal={setNewWorker} 
-            />
-          </div>
         </div>
       </div>
     </div>
